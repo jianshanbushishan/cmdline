@@ -23,14 +23,13 @@ function M.update()
     message:clear()
     message.fix_cr = false
     message.title = nil
-    message.kind = nil
 
     -- Format the cmdline content into the message block
     c:format(message)
 
     -- Show in the popup view
     local format = c:get_format()
-    view:show(message, format)
+    view:show(message, format.kind)
 
     -- Hide real cursor on older Neovim
     if not Cmdline.real_cursor then

@@ -1,5 +1,4 @@
 --- Popup view for cmdline.nvim
---- Standalone implementation (no NUI dependency)
 local Config = require("cmdline.config")
 local Popup = require("cmdline.popup")
 local Util = require("cmdline.util")
@@ -131,19 +130,10 @@ end
 
 --- Show the view with a message
 ---@param message table CmdlineMessage
----@param format? CmdlineFormat format for view selection
-function View:show(message, format)
+---@param kind? CmdlineKind
+function View:show(message, kind)
   if self._loading then
     return
-  end
-
-  -- Determine view options based on format
-  local view_name = (format and format.view) or Config.options.view
-  local view_opts = Config.get_view_options(view_name)
-
-  -- Merge format-specific opts
-  if format and format.opts then
-    view_opts = vim.tbl_deep_extend("force", view_opts, format.opts)
   end
 
   -- Build new opts
@@ -158,7 +148,7 @@ function View:show(message, format)
       scrolloff = 0,
       sidescrolloff = 0,
     },
-  }, view_opts)
+  }, Config.get_popup_options(kind or "cmdline"))
 
   -- Normalize winhighlight
   if new_opts.win_options and new_opts.win_options.winhighlight then

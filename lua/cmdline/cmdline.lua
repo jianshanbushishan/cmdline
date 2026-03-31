@@ -1,5 +1,4 @@
 --- Cmdline event handler and formatter for cmdline.nvim
---- Adapted from noice.nvim's ui/cmdline.lua
 local Config = require("cmdline.config")
 local CmdlineText = require("cmdline.text")
 local Util = require("cmdline.util")
@@ -24,6 +23,15 @@ M.SPECIAL = "Þ"
 local CmdlineInstance = {}
 CmdlineInstance.__index = CmdlineInstance
 
+---@class CmdlineFormat
+---@field name "cmdline"|"search_down"|"search_up"
+---@field kind CmdlineKind
+---@field conceal boolean
+---@field icon string
+---@field icon_hl_group string
+---@field title string
+---@field lang? string
+
 ---@param state CmdlineState
 ---@return CmdlineInstance
 function CmdlineInstance:new(state)
@@ -44,54 +52,53 @@ function CmdlineInstance:get()
   )
 end
 
---- Determine the format (icon, lang, view) based on cmdline content
----@return table
+--- Determine the fixed display kind for the current cmdline
+---@return CmdlineFormat
 function CmdlineInstance:get_format()
-  -- Check for input() prompt
-  if self.state.prompt and self.state.prompt ~= "" then
-    local input_fmt = Config.options.format.input
-    if input_fmt then
-      return input_fmt
-    end
+  if self.state.firstc == "/" or self.state.firstc == "?" then
+    self.offset = 1
+    return {
+      name = self.state.firstc == "/" and "search_down" or "search_up",
+      kind = "search",
+      conceal = true,
+      icon = self.state.firstc == "/" and Config.options.icons.search_down or Config.options.icons.search_up,
+      icon_hl_group = "CmdlineIconSearch",
+      title = " Search ",
+      lang = "regex",
+    }
   end
 
   local line = self.state.firstc .. self:get()
-
-  ---@type {offset:number, format:table}[]
-  local ret = {}
-
-  for name, fmt in pairs(Config.options.format) do
-    if fmt and fmt ~= false and fmt.pattern then
-      local patterns = type(fmt.pattern) == "table" and fmt.pattern or { fmt.pattern }
-      ---@cast patterns string[]
-      for _, pattern in ipairs(patterns) do
-        local _, to = line:find(pattern)
- ---@type number?
-        if to and self.state.pos >= to - 1 then
-          ret[#ret + 1] = {
-            offset = to,
-            format = vim.tbl_deep_extend("force", { name = name }, fmt),
-          }
-        end
-      end
+  local lua_patterns = {
+    "^:%s*lua%s+",
+    "^:%s*lua%s*=%s*",
+    "^:%s*=%s*",
+  }
+  for _, pattern in ipairs(lua_patterns) do
+    local _, to = line:find(pattern)
+    if to and self.state.pos >= to - 1 then
+      self.offset = to
+      return {
+        name = "cmdline",
+        kind = "cmdline",
+        conceal = true,
+        icon = Config.options.icons.cmdline,
+        icon_hl_group = "CmdlineIcon",
+        title = " Lua ",
+        lang = "lua",
+      }
     end
-  end
-
-  table.sort(ret, function(a, b)
-    return a.offset > b.offset
-  end)
-
-  local matched = ret[1]
-  if matched then
-    self.offset = matched.format.conceal ~= false and matched.offset or 0
-    return matched.format
   end
 
   self.offset = 0
   return {
-    name = self.state.firstc,
-    kind = self.state.firstc,
-    view = Config.options.view,
+    name = "cmdline",
+    kind = "cmdline",
+    conceal = self.state.firstc == ":",
+    icon = Config.options.icons.cmdline,
+    icon_hl_group = "CmdlineIcon",
+    title = " Command ",
+    lang = self.state.firstc == ":" and "vim" or nil,
   }
 end
 
@@ -124,41 +131,31 @@ function M.last()
 end
 
 --- Format the cmdline content into a message block
----@param block CmdlineBlock (has :append, :clear, title, kind, fix_cr fields)
+---@param block CmdlineBlock
 function CmdlineInstance:format(block)
   local format = self:get_format()
   block:clear()
-  block.title = nil
-  block.kind = format.name
+  block.title = format.title
   block.fix_cr = false
 
-  local use_input = self.state.prompt ~= ""
-    and format.view == "cmdline_input"
-    and #self.state.prompt <= 60
-    and not self.state.prompt:find("\n")
-
   -- Add icon
-  if format.icon and (format.name ~= "input" or use_input) then
+  if format.icon ~= "" then
     block:append(CmdlineText.virtual_text(format.icon, format.icon_hl_group))
     block:append(" ")
   end
 
-  -- Add prompt for input()
+  -- Render prompt text inline for prompt-based cmdlines.
   if self.state.prompt ~= "" then
-    if use_input then
-      block.title = " " .. self.state.prompt:gsub("%s*:%s*$", "") .. " "
-    else
-      block:append(self.state.prompt, "CmdlinePrompt")
-    end
+    block:append(self.state.prompt, "CmdlinePrompt")
   end
 
-  -- Add first character (: / ? !) unless concealed
+  -- Add first character unless concealed
   if not format.conceal then
     block:append(self.state.firstc)
   end
 
   -- Add command text after offset
-  local cmd = self:get():sub(self.offset)
+  local cmd = self:get():sub(self.offset > 0 and self.offset or 1)
   block:append(cmd)
 
   -- Add syntax highlight marker

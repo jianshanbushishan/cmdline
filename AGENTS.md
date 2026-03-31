@@ -2,15 +2,21 @@
 
 Neovim plugin that replaces the built-in cmdline with a floating popup featuring icons and syntax highlighting. Extracted from [noice.nvim](https://github.com/folke/noice.nvim) as a standalone plugin with zero external dependencies (no NUI, no plenary).
 
+Current product scope is intentionally narrow:
+
+- Popup cmdline focused on command `:` and search `/` / `?`
+- A single built-in `:lua` special case is kept for Lua code input highlighting
+- No general-purpose format registry, view alias system, or custom cmdline mode expansion
+
 ## Project Structure
 
 ```
 plugin/cmdline.lua          # Entry point — loaded guard only
 lua/cmdline/
   init.lua                  # Main module: setup(), enable(), disable(), event routing
-  config.lua                # Config defaults, view definitions, highlight groups
-  cmdline.lua               # Cmdline event handler & formatter (cmdline_show/hide/pos)
-  view.lua                  # Popup view lifecycle (show/hide/render)
+  config.lua                # Config defaults, popup options, highlight groups
+  cmdline.lua               # Cmdline event handler & formatter (command/search + minimal :lua special case)
+  view.lua                  # Popup view lifecycle (show/hide/render) for the single popup view
   popup.lua                 # Floating window creation (native nvim_open_win, no NUI)
   block.lua                 # Text block container (multi-line rendering)
   line.lua                  # Single line of text segments
@@ -24,11 +30,11 @@ lua/cmdline/
 
 ## Build / Lint / Test
 
-This project has **no build step, no linter config, and no test suite**.
+This project has **no build step and no linter config**.
 
 - **No `.stylua`**, `.luacheckrc`, `selene.toml`, or `Makefile` present.
-- **No test directory or test framework.**
-- **No CI configuration.**
+- **No formal test framework or CI configuration.**
+- **A minimal headless smoke script exists at `tests/smoke.lua`.**
 
 ### Manual verification
 
@@ -44,8 +50,14 @@ lua require("cmdline").setup()
 To check for Lua syntax errors:
 ```bash
 luac -p lua/cmdline/init.lua
+luac -p lua/cmdline/cmdline.lua
 # Or from within Neovim:
 :luafile lua/cmdline/init.lua
+```
+
+Minimal headless verification:
+```bash
+nvim --headless -u NONE -i NONE -n -S tests/smoke.lua
 ```
 
 ## Code Style Guidelines
@@ -89,10 +101,10 @@ Extensive use of type annotations — **always add them** for new functions and 
 
 ```lua
 ---@class CmdlineFormat
----@field name string
----@field kind string
----@field pattern? string|string[]
----@field view string
+---@field name "cmdline"|"search_down"|"search_up"
+---@field kind CmdlineKind
+---@field conceal boolean
+---@field icon string
 
 ---@param opts? CmdlineConfig
 function M.setup(opts)
@@ -150,6 +162,7 @@ end
 4. **Platform compatibility**: Guard Neovim version features with `vim.fn.has("nvim-0.10")` / `has("nvim-0.11")`.
 5. **Loading guards**: Use `self._.loading` boolean to prevent re-entrant mount/unmount operations.
 6. **Namespace**: All extmarks use `Config.ns` (created once via `nvim_create_namespace("cmdline")`).
+7. **Feature scope**: Keep cmdline classification fixed to command, search, and the built-in `:lua` special case. Do not reintroduce generic pattern-driven format registries unless explicitly requested.
 
 ### Things to Avoid
 

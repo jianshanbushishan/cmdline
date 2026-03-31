@@ -6,14 +6,12 @@ local _id = 0
 ---@class CmdlineMessage: CmdlineBlock
 ---@field id number
 ---@field title? string
----@field kind? string
 local Message = Block:extend("CmdlineMessage")
 
 function Message:init()
   _id = _id + 1
   self.id = _id
   self.title = nil
-  self.kind = nil
   Block.init(self)
 end
 
