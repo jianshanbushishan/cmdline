@@ -88,11 +88,12 @@ end
 ---@param ns_id number namespace id
 ---@param linenr_start? number line number (1-indexed)
 ---@param linenr_end? number end line number (1-indexed)
-function Block:render(bufnr, ns_id, linenr_start, linenr_end)
+---@param start_col? number start display column (0-indexed)
+function Block:render(bufnr, ns_id, linenr_start, linenr_end, start_col)
   self:_fix_extmarks()
   linenr_start = linenr_start or 1
   for _, line in ipairs(self._lines) do
-    line:render(bufnr, ns_id, linenr_start, linenr_end)
+    line:render(bufnr, ns_id, linenr_start, linenr_end, start_col)
     linenr_start = linenr_start + 1
     if linenr_end then
       linenr_end = linenr_end + 1

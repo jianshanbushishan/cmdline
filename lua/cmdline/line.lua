@@ -5,6 +5,33 @@ local CmdlineText = require("cmdline.text")
 local M = {}
 M.__index = M
 
+---@param text string
+---@param display_col number
+---@return number
+local function display_col_to_byte(text, display_col)
+  if display_col <= 0 or text == "" then
+    return 0
+  end
+
+  local byte = 0
+  local width = 0
+  local chars = vim.fn.strchars(text)
+  for i = 0, chars - 1 do
+    local char = vim.fn.strcharpart(text, i, 1)
+    local char_width = vim.api.nvim_strwidth(char)
+    if width + char_width > display_col then
+      break
+    end
+    width = width + char_width
+    byte = byte + vim.fn.strlen(char)
+    if width >= display_col then
+      break
+    end
+  end
+
+  return byte
+end
+
 ---@class CmdlineLine
 ---@field _texts CmdlineText[]
 
@@ -73,12 +100,16 @@ end
 ---@param ns_id number namespace id
 ---@param linenr_start number start line number (1-indexed)
 ---@param linenr_end? number end line number (1-indexed)
-function M.render(self, bufnr, ns_id, linenr_start, linenr_end)
+---@param start_col? number start display column (0-indexed)
+function M.render(self, bufnr, ns_id, linenr_start, linenr_end, start_col)
   local row_start = linenr_start - 1
-  local row_end = linenr_end and linenr_end - 1 or row_start + 1
+  local display_col_start = start_col or 0
   local content = self:content()
-  vim.api.nvim_buf_set_lines(bufnr, row_start, row_end, false, { content })
-  self:highlight(bufnr, ns_id, linenr_start)
+  local current = vim.api.nvim_buf_get_lines(bufnr, row_start, row_start + 1, false)[1] or ""
+  local col_start = display_col_to_byte(current, display_col_start)
+  local col_end = display_col_to_byte(current, display_col_start + vim.api.nvim_strwidth(content))
+  vim.api.nvim_buf_set_text(bufnr, row_start, col_start, row_start, col_end, { content })
+  self:highlight(bufnr, ns_id, linenr_start, col_start)
 end
 
 return M

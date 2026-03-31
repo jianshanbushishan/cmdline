@@ -3,6 +3,8 @@
 local M = {}
 M.__index = M
 
+local BORDER_NS = vim.api.nvim_create_namespace("cmdline_border")
+
 -- Border characters
 local BORDER_STYLES = {
   rounded = { "╭", "─", "╮", "│", "│", "─", "╰", "╯" },
@@ -12,6 +14,36 @@ local BORDER_STYLES = {
   shadow = { "", " ", "", " ", "", " ", "", " " },
   none = nil,
 }
+
+---@param opts table
+---@return "none"|"split"|"native"|"inline"
+local function get_border_mode(opts)
+  local border = opts.border or {}
+  if border.style == nil or border.style == "none" or border.style == "shadow" then
+    return border.style == "shadow" and "split" or "none"
+  end
+  if border.native ~= nil then
+    return border.native and "native" or "split"
+  end
+  return vim.g.neovide == true and "inline" or "split"
+end
+
+M.get_border_mode = get_border_mode
+
+---@param style table|string|nil
+---@return table|string|nil
+local function get_native_border(style)
+  if style == nil or style == "none" then
+    return nil
+  end
+  if type(style) == "table" then
+    return style
+  end
+  if BORDER_STYLES[style] then
+    return BORDER_STYLES[style]
+  end
+  return style
+end
 
 ---@param border_text table|string|nil
 ---@param width number
@@ -102,7 +134,11 @@ end
 ---@field bufnr number?
 ---@field winid number?
 ---@field border table
----@field _ {mounted:boolean, loading:boolean, win_options:table, buf_options:table, win_config:table}
+---@field _ {mounted:boolean, loading:boolean, win_options:table, buf_options:table, win_config:table, border_mode:string, native_border:table|string|nil}
+
+---@class CmdlinePopupContentOrigin
+---@field line number
+---@field col number
 
 --- Resolve a position/size value that can be a number, percentage string, or "auto"
 ---@param val number|string|nil
@@ -190,11 +226,15 @@ function M.new(opts)
     border_chars = nil,
     border_padding = normalize_padding(opts.border and opts.border.padding),
     border_text = opts.border and opts.border.text or {},
+    border_mode = get_border_mode(opts),
+    native_border = nil,
   }
 
   -- Resolve border style
   local style = opts.border and opts.border.style
-  if style and style ~= "none" then
+  if self._.border_mode == "native" then
+    self._.native_border = get_native_border(style)
+  elseif style and style ~= "none" then
     self._.border_chars = BORDER_STYLES[style] or (type(style) == "table" and style) or BORDER_STYLES.rounded
   end
 
@@ -214,7 +254,7 @@ function M._resolve_layout(self)
   local opts = self._.opts
   local total_w = vim.o.columns
   local total_h = vim.o.lines
-  local has_border = self._.border_chars ~= nil
+  local has_border = self._.border_mode ~= "none"
   local pad = self._.border_padding
   local bw = has_border and 2 or 0  -- border adds 2 cols (left + right)
   local bh = has_border and 2 or 0  -- border adds 2 rows (top + bottom)
@@ -269,18 +309,43 @@ function M._resolve_layout(self)
   self._.content_width = width
   self._.content_height = height
 
-  -- The content window renders only the actual message area.
-  -- Padding is represented by the surrounding border window space.
-  self._.win_width = width or 0
-  self._.win_height = height or 0
+  -- With native borders, padding is rendered inside the single content window.
+  if self._.border_mode == "native" then
+    self._.win_width = (width or 0) + pw
+    self._.win_height = (height or 0) + ph
+  elseif self._.border_mode == "inline" then
+    self._.win_width = (width or 0) + pw + bw
+    self._.win_height = (height or 0) + ph + bh
+  else
+    -- The content window renders only the actual message area.
+    -- Padding is represented by the surrounding border window space.
+    self._.win_width = width or 0
+    self._.win_height = height or 0
+  end
 
   -- Outer dimensions (content + padding + border)
-  self._.outer_width = (width or 0) + pw + bw
-  self._.outer_height = (height or 0) + ph + bh
+  if self._.border_mode == "inline" then
+    self._.outer_width = self._.win_width
+    self._.outer_height = self._.win_height
+  elseif self._.border_mode == "split" then
+    self._.outer_width = self._.win_width + pw + bw
+    self._.outer_height = self._.win_height + ph + bh
+  else
+    self._.outer_width = self._.win_width + bw
+    self._.outer_height = self._.win_height + bh
+  end
 
   -- Position of the content window relative to the border window
-  self._.content_row = (has_border and 1 or 0) + pad.top
-  self._.content_col = (has_border and 1 or 0) + pad.left
+  if self._.border_mode == "native" then
+    self._.content_row = pad.top
+    self._.content_col = pad.left
+  elseif self._.border_mode == "inline" then
+    self._.content_row = 1 + pad.top
+    self._.content_col = 1 + pad.left
+  else
+    self._.content_row = (has_border and 1 or 0) + pad.top
+    self._.content_col = (has_border and 1 or 0) + pad.left
+  end
 
   -- Outer position (for the border window or the content window if no border)
   self._.row = row or 0
@@ -293,6 +358,98 @@ function M._resolve_layout(self)
       self._.win_config.win = opts.relative.winid or 0
     end
   end
+end
+
+---@return string[]?, string?, number?, number?
+function M.get_frame_lines(self)
+  local chars = self._.border_chars
+  if not chars then
+    return nil, nil, nil, nil
+  end
+
+  local w = self._.border_mode == "inline" and self._.win_width or self._.outer_width
+  local h = self._.border_mode == "inline" and self._.win_height or self._.outer_height
+  local text = self._.border_text
+
+  local lines = {}
+  for i = 1, h do
+    if i == 1 then
+      lines[i] = chars[1] .. string.rep(chars[2], w - 2) .. chars[3]
+    elseif i == h then
+      lines[i] = chars[7] .. string.rep(chars[6], w - 2) .. chars[8]
+    else
+      lines[i] = chars[4] .. string.rep(" ", w - 2) .. chars[5]
+    end
+  end
+
+  local title, title_width = get_top_title(text and text.top, w - 2)
+  local hl = nil
+  local start_byte = nil
+  local end_byte = nil
+  if title and title_width then
+    local fill = math.max(0, w - 2 - title_width)
+    local left = math.floor(fill / 2)
+    local right = fill - left
+    lines[1] = chars[1] .. string.rep(chars[2], left) .. title .. string.rep(chars[2], right) .. chars[3]
+
+    hl = self._.win_options.winhighlight
+    if type(hl) == "string" then
+      hl = hl:match("FloatTitle:([^,]+)")
+    elseif type(hl) == "table" then
+      hl = hl.FloatTitle or hl.Normal
+    end
+    start_byte = vim.fn.byteidx(lines[1], 1 + left)
+    end_byte = start_byte + vim.fn.strlen(title)
+  end
+
+  return lines, hl, start_byte, end_byte
+end
+
+---@param bufnr number
+function M.render_inline_frame(self, bufnr)
+  local lines, hl, start_byte, end_byte = self:get_frame_lines()
+  if not lines then
+    return
+  end
+
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.api.nvim_buf_clear_namespace(bufnr, BORDER_NS, 0, -1)
+  if hl and hl ~= "" and start_byte and end_byte then
+    vim.api.nvim_buf_set_extmark(bufnr, BORDER_NS, 0, start_byte, {
+      end_col = end_byte,
+      hl_group = hl,
+    })
+  end
+end
+
+---@param bufnr number
+---@param content_height number
+---@return CmdlinePopupContentOrigin
+function M.prepare_buffer(self, bufnr, content_height)
+  if self._.border_mode == "inline" then
+    self:render_inline_frame(bufnr)
+    return {
+      line = self._.content_row + 1,
+      col = self._.content_col,
+    }
+  end
+
+  local pad = self._.border_mode == "native" and self._.border_padding or {
+    top = 0,
+    right = 0,
+    bottom = 0,
+    left = 0,
+  }
+  local lines = {}
+  local total_height = content_height + pad.top + pad.bottom
+  for _ = 1, total_height do
+    lines[#lines + 1] = ""
+  end
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  return {
+    line = pad.top + 1,
+    col = pad.left,
+  }
 end
 
 --- Set buffer options
@@ -317,55 +474,18 @@ end
 ---@param border_buf number
 ---@param border_win number
 function M._setup_border(self, border_buf, border_win)
-  local chars = self._.border_chars
-  if not chars then
+  local lines, hl, start_byte, end_byte = self:get_frame_lines()
+  if not lines then
     return
   end
 
-  local w = self._.outer_width
-  local h = self._.outer_height
-  local text = self._.border_text
-
-  -- Build border lines
-  local lines = {}
-  for i = 1, h do
-    if i == 1 then
-      lines[i] = chars[1] .. string.rep(chars[2], w - 2) .. chars[3]
-    elseif i == h then
-      lines[i] = chars[7] .. string.rep(chars[6], w - 2) .. chars[8]
-    else
-      lines[i] = chars[4] .. string.rep(" ", w - 2) .. chars[5]
-    end
-  end
-
   vim.api.nvim_buf_set_lines(border_buf, 0, -1, false, lines)
-
-  -- Set top title
-  local title, title_width = get_top_title(text and text.top, w - 2)
-  if title and title_width then
-    local fill = math.max(0, w - 2 - title_width)
-    local left = math.floor(fill / 2)
-    local right = fill - left
-    lines[1] = chars[1] .. string.rep(chars[2], left) .. title .. string.rep(chars[2], right) .. chars[3]
-    vim.api.nvim_buf_set_lines(border_buf, 0, 1, false, { lines[1] })
-
-    local hl = self._.win_options.winhighlight
-    if type(hl) == "string" then
-      hl = hl:match("FloatTitle:([^,]+)")
-    elseif type(hl) == "table" then
-      hl = hl.FloatTitle or hl.Normal
-    end
-    if hl and hl ~= "" then
-      local ns = vim.api.nvim_create_namespace("cmdline_border")
-      local start_char = 1 + left
-      local start_byte = vim.fn.byteidx(lines[1], start_char)
-      local end_byte = start_byte + vim.fn.strlen(title)
-      vim.api.nvim_buf_clear_namespace(border_buf, ns, 0, -1)
-      vim.api.nvim_buf_set_extmark(border_buf, ns, 0, start_byte, {
-        end_col = end_byte,
-        hl_group = hl,
-      })
-    end
+  if hl and hl ~= "" and start_byte and end_byte then
+    vim.api.nvim_buf_clear_namespace(border_buf, BORDER_NS, 0, -1)
+    vim.api.nvim_buf_set_extmark(border_buf, BORDER_NS, 0, start_byte, {
+      end_col = end_byte,
+      hl_group = hl,
+    })
   end
 
   vim.bo[border_buf].modifiable = false
@@ -389,7 +509,15 @@ function M._open_window(self)
   config.width = self._.win_width
   config.height = self._.win_height
 
-  if self._.border_chars then
+  if self._.border_mode == "native" then
+    config.row = self._.row
+    config.col = self._.col
+    config.border = self._.native_border
+    if self._.border_text and self._.border_text.top then
+      config.title = self._.border_text.top
+      config.title_pos = "center"
+    end
+  elseif self._.border_mode == "split" and self._.border_chars then
     -- Position content window relative to border position
     config.row = self._.row + self._.content_row
     config.col = self._.col + self._.content_col
@@ -404,7 +532,7 @@ end
 
 --- Open the border window
 function M._open_border(self)
-  if not self._.border_chars then
+  if self._.border_mode ~= "split" or not self._.border_chars then
     return
   end
 
@@ -453,6 +581,11 @@ end
 
 --- Close the border window
 function M._close_border(self)
+  if self._.border_mode ~= "split" then
+    self.border.winid = nil
+    self.border.bufnr = nil
+    return
+  end
   if self.border.winid then
     if vim.api.nvim_win_is_valid(self.border.winid) then
       vim.api.nvim_win_close(self.border.winid, true)
@@ -554,7 +687,7 @@ function M.update_layout(self, config)
   self:_resolve_layout()
 
   -- Update border
-  if self.border.winid and vim.api.nvim_win_is_valid(self.border.winid) then
+  if self._.border_mode == "split" and self.border.winid and vim.api.nvim_win_is_valid(self.border.winid) then
     vim.api.nvim_win_set_config(self.border.winid, {
       width = self._.outer_width,
       height = self._.outer_height,
@@ -573,7 +706,10 @@ function M.update_layout(self, config)
       width = self._.win_width,
       height = self._.win_height,
     }
-    if self._.border_chars then
+    if self._.border_mode == "native" then
+      win_config.row = self._.row
+      win_config.col = self._.col
+    elseif self._.border_mode == "split" and self._.border_chars then
       win_config.row = self._.row + self._.content_row
       win_config.col = self._.col + self._.content_col
     else

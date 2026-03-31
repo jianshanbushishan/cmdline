@@ -61,6 +61,7 @@ require("cmdline").setup({
     border = {
       style = "rounded",
       padding = { 0, 1 },
+      native = nil,
     },
     win_options = {
       winhighlight = {
@@ -107,6 +108,7 @@ require("cmdline").setup({
     border = {
       style = "double",
       padding = { 0, 1 },
+      native = true,
     },
   },
 })
@@ -128,6 +130,9 @@ require("cmdline").setup({
 
 - `position.row` 和 `position.col` 支持数字，也支持 `"50%"` 这类百分比字符串
 - `size.width` 和 `size.height` 支持数字，也支持 `"auto"`
+- `popup.border.native = true` 可显式切换到 Neovim 原生浮窗边框
+- `popup.border.native = false` 强制使用兼容的分离式边框窗口
+- 在 Neovide 下未显式设置时，会自动使用单浮窗内嵌边框，避免“双浮窗 + 双阴影”，也规避原生 border 的阴影错位
 
 ## 内置特判
 

@@ -285,7 +285,7 @@ function M.fix_cursor()
     return
   end
   if M.real_cursor then
-    vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(M.position.buf), M.position.cursor })
+    vim.api.nvim_win_set_cursor(win, { M.position.bufpos.row, M.position.cursor })
     pcall(vim.api.nvim__redraw, { cursor = true, win = win, flush = true })
   end
 end

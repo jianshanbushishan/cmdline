@@ -83,6 +83,9 @@ end
 
 --- Fix border highlights (hide search highlights in border)
 function View:fix_border()
+  if self._popup and self._popup._ and self._popup._.border_mode ~= "split" then
+    return
+  end
   if
     self._popup
     and self._popup.border
@@ -118,11 +121,10 @@ function View:render(message)
   -- Clear namespace extmarks
   vim.api.nvim_buf_clear_namespace(buf, Config.ns, 0, -1)
 
-  -- Clear existing lines
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
+  local origin = self._popup:prepare_buffer(buf, message:height())
 
   -- Render message content
-  message:render(buf, Config.ns, 1)
+  message:render(buf, Config.ns, origin.line, nil, origin.col)
 
   -- Make buffer unmodifiable
   vim.bo[buf].modifiable = false
@@ -174,12 +176,15 @@ function View:show(message, kind)
     -- Check if structural options changed (border, position type, etc.)
     local old_border_style = self._opts.border and self._opts.border.style
     local new_border_style = new_opts.border and new_opts.border.style
+    local old_border_mode = Popup.get_border_mode(self._opts)
+    local new_border_mode = Popup.get_border_mode(new_opts)
     local old_relative = self._opts.relative
     local new_relative = new_opts.relative
     -- Also check border text changes (title)
     local old_border_text = self._opts.border and self._opts.border.text and self._opts.border.text.top
     local new_border_text = new_opts.border and new_opts.border.text and new_opts.border.text.top
     if old_border_style ~= new_border_style
+      or old_border_mode ~= new_border_mode
       or not vim.deep_equal(old_relative, new_relative)
       or old_border_text ~= new_border_text
     then
