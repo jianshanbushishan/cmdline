@@ -1,18 +1,8 @@
-if vim.g.loaded_cmdline_nvim == 1 then
+-- cmdline.nvim - Standalone cmdline replacement with icons and syntax highlighting
+-- This file is loaded automatically by Neovim's runtime path
+-- NOTE: setup() must be called by the user in their init.lua to configure options.
+--       This file only sets the loaded guard to prevent double-loading.
+if vim.g.loaded_cmdline then
   return
 end
-
-vim.g.loaded_cmdline_nvim = 1
-
-vim.api.nvim_create_user_command("CmdlineEnable", function()
-  require("cmdline").enable()
-end, {})
-
-vim.api.nvim_create_user_command("CmdlineDisable", function()
-  require("cmdline").disable()
-end, {})
-
-vim.api.nvim_create_user_command("CmdlineToggle", function()
-  require("cmdline").toggle()
-end, {})
-
+vim.g.loaded_cmdline = 1

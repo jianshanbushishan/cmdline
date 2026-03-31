@@ -1,149 +1,228 @@
 # cmdline.nvim
 
-一个专注于 Neovim 命令行体验的最小插件，只实现两件事：
+`cmdline.nvim` replaces Neovim's built-in command line with a floating popup that supports:
 
-- 可自定义、带图标的 cmdline UI
-- cmdline 上的 Vim / Lua 语法高亮
+- command kind icons
+- per-command popup styles
+- syntax highlighting with Treesitter fallback
+- zero external UI dependencies
 
-灵感来自 [folke/noice.nvim](https://github.com/folke/noice.nvim)，但实现刻意保持轻量，不依赖 `nui.nvim` 或 `nvim-notify`。
+This project is extracted from the cmdline experience in `noice.nvim`, but kept intentionally small and standalone.
 
-## 特性
+## Features
 
-- 使用 `vim.ui_attach(..., { ext_cmdline = true }, ...)` 接管命令行渲染
-- 通过规则匹配不同命令类型，并显示自定义图标/标签
-- 对普通 Ex 命令启用 Vim 高亮
-- 对 `:lua ...` 命令启用 Lua 高亮
-- 支持嵌套 cmdline
-- 支持最小的 block cmdline 展示
+- Native floating windows via `nvim_open_win`
+- Configurable views for `:`, `/`, `?`, `input()`, and custom patterns
+- Popup border titles and kind-specific highlights
+- Treesitter highlighting when a parser exists
+- Vim syntax fallback when Treesitter is unavailable
+- No `nui.nvim`, no `plenary.nvim`
 
-## 要求
+## Requirements
 
-- Neovim >= 0.11，推荐 0.12+
-- 想要更好的高亮效果时，建议安装对应 parser：
-  - `vim`
-  - `lua`
+- Neovim `0.9+`
+- Neovim `0.10+` is recommended
+- Neovim `0.11+` gets the cleanest cursor/redraw behavior
 
-## 安装
+## Installation
 
-`lazy.nvim`
+With `lazy.nvim`:
 
 ```lua
 {
-  dir = "D:/private/temp/cmdline",
+  "your-name/cmdline.nvim",
   config = function()
     require("cmdline").setup()
   end,
 }
 ```
 
-## 默认配置
+With `vim.pack` or a manual runtimepath setup:
+
+```lua
+require("cmdline").setup()
+```
+
+The plugin file only sets a load guard. The UI is enabled when `setup()` is called.
+
+## Default Configuration
 
 ```lua
 require("cmdline").setup({
   enabled = true,
-  view = {
-    border = "rounded",
-    min_width = 40,
-    max_width = 0.7,
-    padding = { left = 1, right = 1 },
-    position = {
-      row = "bottom",
-      col = "center",
-      margin_bottom = 1,
-      margin_right = 2,
-    },
-    winblend = 0,
-    zindex = 250,
-  },
-  icons = {
-    cmdline = "",
-    lua = "",
-    search_down = "",
-    search_up = "",
-    input = "󰥻",
-  },
-  formats = {
-    {
-      name = "lua",
-      pattern = { "^:%s*lua%s+", "^:%s*lua%s*=%s*" },
+  view = "cmdline_popup",
+  opts = {},
+  format = {
+    cmdline = { pattern = "^:", icon = "", lang = "vim" },
+    search_down = { kind = "search", pattern = "^/", icon = " ", lang = "regex" },
+    search_up = { kind = "search", pattern = "^%?", icon = " ", lang = "regex" },
+    filter = { pattern = "^:%s*!", icon = "$", lang = "bash" },
+    lua = {
+      pattern = { "^:%s*lua%s+", "^:%s*lua%s*=%s*", "^:%s*=%s*" },
       icon = "",
-      label = "lua",
       lang = "lua",
-      trim = {
-        content_prefix = "^%s*lua%s*=?%s*",
-      },
     },
-    {
-      name = "search_down",
-      pattern = "^/",
-      icon = "",
-      label = "/",
-    },
-    {
-      name = "search_up",
-      pattern = "^%?",
-      icon = "",
-      label = "?",
-    },
-    {
-      name = "input",
-      when = function(ctx)
-        return ctx.prompt ~= ""
-      end,
-      icon = "󰥻",
-      label = function(ctx)
-        return ctx.prompt
-      end,
-    },
-    {
-      name = "cmdline",
-      pattern = "^:",
-      icon = "",
-      label = ":",
-      lang = "vim",
-    },
+    help = { pattern = "^:%s*he?l?p?%s+", icon = "" },
+    calculator = { pattern = "^=", icon = "", lang = "vimnormal" },
+    input = { view = "cmdline_input", icon = "󰥻 " },
   },
+  views = {},
 })
 ```
 
-## 自定义示例
+## Configuration Model
+
+There are three top-level knobs:
+
+- `view`: the default view name used by formats
+- `format`: pattern-based cmdline classifiers
+- `views`: named popup view definitions and aliases
+
+### Example
 
 ```lua
 require("cmdline").setup({
-  icons = {
-    cmdline = ">",
-    lua = "lua",
-  },
-  formats = {
-    {
-      name = "lua",
-      pattern = "^:%s*lua%s+",
-      icon = "lua",
-      label = "script",
-      lang = "lua",
-      trim = { content_prefix = "^%s*lua%s*=?%s*" },
+  view = "cmdline_popup",
+  views = {
+    cmdline_popup = {
+      position = {
+        row = "15%",
+        col = "50%",
+      },
+      size = {
+        min_width = 50,
+        max_width = 90,
+      },
     },
-    {
-      name = "cmdline",
-      pattern = "^:",
-      icon = ">",
-      label = ":",
-      lang = "vim",
+    cmdline_input = {
+      view = "cmdline_popup",
+      border = {
+        style = "double",
+        padding = { 0, 1 },
+      },
+    },
+  },
+  format = {
+    lua = {
+      icon = "Lua",
+      title = " Lua ",
+    },
+    search_down = {
+      icon = "Find",
     },
   },
 })
 ```
 
-## 命令
+## Custom Formats
 
-- `:CmdlineEnable`
-- `:CmdlineDisable`
-- `:CmdlineToggle`
+Each format entry can define:
 
-## 本地 smoke test
+- `pattern`: string or string array
+- `kind`: highlight family name
+- `view`: target view name
+- `icon`: prefix icon
+- `title`: border title
+- `lang`: Treesitter or syntax language
+- `conceal`: hide the matched prefix from the rendered body
+- `opts`: extra popup overrides merged into the resolved view
 
-```powershell
-nvim --clean --headless -u NONE `
-  -c "set rtp+=D:/private/temp/cmdline" `
-  -c "luafile D:/private/temp/cmdline/tests/smoke.lua"
+Example:
+
+```lua
+require("cmdline").setup({
+  format = {
+    git = {
+      pattern = "^:%s*!git%s+",
+      icon = "Git",
+      title = " Shell ",
+      lang = "bash",
+    },
+  },
+})
 ```
+
+## Views
+
+Built-in views:
+
+- `cmdline_popup`
+- `cmdline`
+- `cmdline_input`
+
+`cmdline_input` is an alias view that inherits from `cmdline_popup`.
+
+Supported popup options are based on the current native implementation in `lua/cmdline/popup.lua`:
+
+- `relative`
+- `focusable`
+- `enter`
+- `zindex`
+- `position`
+- `size`
+- `border`
+- `win_options`
+- `buf_options`
+
+`position.row` and `position.col` support numbers and percentage strings like `"50%"`.
+`size.width` and `size.height` support numbers and `"auto"`.
+
+## Highlights
+
+Base highlight groups:
+
+- `Cmdline`
+- `CmdlineIcon`
+- `CmdlinePrompt`
+- `CmdlinePopup`
+- `CmdlinePopupBorder`
+- `CmdlinePopupTitle`
+- `CmdlineCursor`
+
+Kind-specific groups are generated automatically, for example:
+
+- `CmdlineIconSearch`
+- `CmdlinePopupBorderSearch`
+- `CmdlinePopupTitleSearch`
+
+Override them in your colorscheme or after `setup()`:
+
+```lua
+vim.api.nvim_set_hl(0, "CmdlinePopupBorder", { link = "FloatBorder" })
+vim.api.nvim_set_hl(0, "CmdlineIconSearch", { fg = "#e5c07b" })
+```
+
+## API
+
+```lua
+local cmdline = require("cmdline")
+
+cmdline.setup(opts)
+cmdline.enable()
+cmdline.disable()
+```
+
+Typical usage only needs `setup()`.
+
+## Manual Verification
+
+Minimal headless load check:
+
+```bash
+nvim --headless -u NONE -i NONE -n \
+  -c "set rtp+=/path/to/cmdline.nvim" \
+  -c "lua require('cmdline').setup({ enabled = false })" \
+  -c "quit"
+```
+
+Smoke script in this repository:
+
+```bash
+nvim --headless -u NONE -i NONE -n -S tests/smoke.lua
+```
+
+## Notes
+
+- `cmdline_block_*` events are currently accepted but intentionally ignored.
+- The implementation assumes a single visible cmdline flow and does not try to present stacked nested cmdlines.
+- Older Neovim versions may need extra redraw work during substitute preview.
